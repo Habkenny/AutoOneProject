@@ -1,0 +1,314 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net - deny all by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isPartner() {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'partner';
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isWorkshopOwner(workshopId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/workshops/$(workshopId)) &&
+             get(/databases/$(database)/documents/workshops/$(workshopId)).data.ownerId == request.auth.uid;
+    }
+
+    // Validation functions
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'language', 'createdAt', 'updatedAt', 'isEmailVerified']) &&
+             data.keys().size() >= 6 && data.keys().size() <= 10 &&
+             data.email is string && data.email.matches('[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}') &&
+             data.role in ['user', 'partner', 'admin'] &&
+             data.language in ['en', 'ar', 'de'] &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time &&
+             data.isEmailVerified is bool;
+    }
+
+    function isValidWorkshop(data) {
+      return data.keys().hasAll(['ownerId', 'name', 'address', 'phone', 'email', 'latitude', 'longitude', 'rating', 'reviewCount', 'isActive', 'workingHours', 'createdAt', 'updatedAt']) &&
+             data.keys().size() >= 13 && data.keys().size() <= 16 &&
+             data.ownerId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.address is string && data.address.size() > 0 && data.address.size() <= 200 &&
+             data.phone is string && data.phone.matches('\\+?[1-9]\\d{1,14}') &&
+             data.email.matches('[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}') &&
+             data.latitude is float && data.latitude >= -90 && data.latitude <= 90 &&
+             data.longitude is float && data.longitude >= -180 && data.longitude <= 180 &&
+             data.rating is float && data.rating >= 0 && data.rating <= 5 &&
+             data.reviewCount is int && data.reviewCount >= 0 &&
+             data.isActive is bool &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidWorkshopService(data) {
+      return data.keys().hasAll(['workshopId', 'name', 'description', 'category', 'price', 'duration', 'isActive', 'createdAt', 'updatedAt']) &&
+             data.keys().size() >= 9 && data.keys().size() <= 9 &&
+             data.workshopId is string && data.workshopId.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.description is string && data.description.size() <= 500 &&
+             data.category in ['oil_change', 'tire_service', 'brake_service', 'engine_repair', 'diagnostic', 'maintenance', 'other'] &&
+             data.price is float && data.price >= 0 && data.price <= 10000 &&
+             data.duration is int && data.duration > 0 && data.duration <= 480 && // max 8 hours
+             data.isActive is bool &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidCarWashService(data) {
+      return data.keys().hasAll(['name', 'description', 'type', 'price', 'duration', 'isActive', 'createdAt', 'updatedAt']) &&
+             data.keys().size() >= 8 && data.keys().size() <= 8 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.description is string && data.description.size() <= 500 &&
+             data.type in ['express', 'standard', 'premium'] &&
+             data.price is float && data.price >= 0 && data.price <= 1000 &&
+             data.duration is int && data.duration > 0 && data.duration <= 180 && // max 3 hours
+             data.isActive is bool &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['userId', 'type', 'serviceId', 'status', 'scheduledAt', 'totalPrice', 'currency', 'customerInfo', 'createdAt', 'updatedAt']) &&
+             data.keys().size() >= 10 && data.keys().size() <= 15 &&
+             data.userId == request.auth.uid &&
+             data.type in ['workshop', 'car_wash'] &&
+             data.serviceId is string && data.serviceId.size() > 0 &&
+             data.status in ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'] &&
+             data.scheduledAt is timestamp && data.scheduledAt > request.time &&
+             data.totalPrice is float && data.totalPrice >= 0 && data.totalPrice <= 10000 &&
+             data.currency == 'AED' &&
+             data.customerInfo is map &&
+             data.customerInfo.name is string && data.customerInfo.name.size() > 0 &&
+             data.customerInfo.phone is string && data.customerInfo.phone.matches('\\+?[1-9]\\d{1,14}') &&
+             data.customerInfo.email.matches('[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}') &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['bookingId', 'userId', 'amount', 'currency', 'status', 'paymentMethod', 'stripePaymentIntentId', 'createdAt', 'updatedAt']) &&
+             data.keys().size() >= 9 && data.keys().size() <= 12 &&
+             data.bookingId is string && data.bookingId.size() > 0 &&
+             data.userId == request.auth.uid &&
+             data.amount is float && data.amount >= 0 && data.amount <= 10000 &&
+             data.currency == 'AED' &&
+             data.status in ['pending', 'processing', 'succeeded', 'failed', 'cancelled', 'refunded'] &&
+             data.paymentMethod in ['card', 'apple_pay', 'google_pay'] &&
+             data.stripePaymentIntentId is string && data.stripePaymentIntentId.size() > 0 &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read/write their own profile
+      allow read, write: if isOwner(userId) && isValidUser(resource.data);
+
+      // Create user profile (for new signups)
+      allow create: if isAuthenticated() && userId == request.auth.uid && isValidUser(request.resource.data);
+
+      // Admins can read all users
+      allow read: if isAdmin();
+
+      // Admins can update user roles
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'updatedAt']);
+    }
+
+    // Workshops collection
+    match /workshops/{workshopId} {
+      // Anyone can read active workshops
+      allow read: if resource.data.isActive == true || isAdmin() || isWorkshopOwner(workshopId);
+
+      // Partners can create workshops
+      allow create: if isPartner() && isValidWorkshop(request.resource.data);
+
+      // Workshop owners and admins can update
+      allow update: if (isWorkshopOwner(workshopId) || isAdmin()) && isValidWorkshop(request.resource.data);
+
+      // Only admins can delete
+      allow delete: if isAdmin();
+    }
+
+    // Workshop services subcollection
+    match /workshops/{workshopId}/services/{serviceId} {
+      // Anyone can read active services
+      allow read: if get(/databases/$(database)/documents/workshops/$(workshopId)).data.isActive == true || isAdmin() || isWorkshopOwner(workshopId);
+
+      // Workshop owners can manage their services
+      allow read, write: if isWorkshopOwner(workshopId) && isValidWorkshopService(request.resource.data);
+
+      // Admins can manage all services
+      allow read, write: if isAdmin();
+    }
+
+    // Car wash services collection
+    match /car_wash_services/{serviceId} {
+      // Anyone can read active services
+      allow read: if resource.data.isActive == true || isAdmin();
+
+      // Only admins can manage car wash services
+      allow read, write: if isAdmin() && isValidCarWashService(request.resource.data);
+    }
+
+    // Bookings collection
+    match /bookings/{bookingId} {
+      // Users can read/write their own bookings
+      allow read, write: if isOwner(resource.data.userId) && isValidBooking(request.resource.data);
+
+      // Workshop owners can read bookings for their workshops
+      allow read: if resource.data.type == 'workshop' && isWorkshopOwner(resource.data.workshopId);
+
+      // Admins can read all bookings
+      allow read: if isAdmin();
+
+      // Users can create bookings
+      allow create: if isAuthenticated() && isValidBooking(request.resource.data);
+
+      // Users can update their own bookings (limited fields)
+      allow update: if isOwner(resource.data.userId) &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'notes', 'updatedAt']) &&
+                     request.resource.data.status in ['cancelled'];
+
+      // Workshop owners can update booking status for their workshops
+      allow update: if resource.data.type == 'workshop' &&
+                     isWorkshopOwner(resource.data.workshopId) &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+                     request.resource.data.status in ['confirmed', 'in_progress', 'completed', 'no_show'];
+
+      // Admins can update any booking
+      allow update: if isAdmin();
+    }
+
+    // Payments collection
+    match /payments/{paymentId} {
+      // Users can read their own payments
+      allow read: if isOwner(resource.data.userId);
+
+      // Users can create payments for their bookings
+      allow create: if isAuthenticated() && isValidPayment(request.resource.data);
+
+      // Only system can update payments (via Cloud Functions)
+      allow update: if false;
+
+      // Admins can read all payments
+      allow read: if isAdmin();
+    }
+
+    // Reviews collection
+    match /reviews/{reviewId} {
+      // Anyone can read reviews
+      allow read: if true;
+
+      // Users can create reviews for their completed bookings
+      allow create: if isAuthenticated() &&
+                     exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)) &&
+                     get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.userId == request.auth.uid &&
+                     get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == 'completed';
+
+      // Users can update their own reviews
+      allow update: if isOwner(resource.data.userId);
+
+      // Only admins can delete reviews
+      allow delete: if isAdmin();
+    }
+
+    // Notifications collection
+    match /notifications/{notificationId} {
+      // Users can read/write their own notifications
+      allow read, write: if isOwner(resource.data.userId);
+
+      // Only system can create notifications (via Cloud Functions)
+      allow create: if false;
+
+      // Users can mark as read
+      allow update: if isOwner(resource.data.userId) &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+    }
+  }
+}
+             (data.get('date', '') is string) &&
+             (data.get('costEstimate', 0) is number) &&
+             data.createdAt == request.time;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      // No list reading for PII
+      allow list: if isAdmin();
+      
+      // Anyone signed in can create their own doc, but role MUST be user (prevents privilege escalation)
+      allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidUser(incoming()) && incoming().role == 'user';
+      
+      // Update allowed by owner (but cannot change role) or admin
+      allow update: if (isSignedIn() && isValidId(userId) && userId == request.auth.uid && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']))
+      )) || isAdmin();
+      
+      allow delete: if isAdmin();
+    }
+
+    // Workshops Collection
+    match /workshops/{workshopId} {
+      // Anyone signed in can view workshops
+      allow get: if isSignedIn() && isValidId(workshopId);
+      allow list: if isSignedIn(); // Safe to list public workshops
+
+      // Creation requires user doc to exist. In real app, only partners can create, but allowing any user for MVP.
+      allow create: if isVerifiedUser() && isValidId(workshopId) && isValidWorkshop(incoming());
+
+      // Update by owner or admin
+      allow update: if (isSignedIn() && isValidId(workshopId) && existing().ownerId == request.auth.uid && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'address', 'description']))
+      )) || isAdmin();
+
+      allow delete: if isAdmin() || (isSignedIn() && isValidId(workshopId) && existing().ownerId == request.auth.uid);
+    }
+
+    // Bookings Collection
+    match /bookings/{bookingId} {
+      // Users can get their own bookings
+      allow get: if isSignedIn() && isValidId(bookingId) && (existing().userId == request.auth.uid || isAdmin());
+      
+      // Users can list their own bookings
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      // Creation
+      allow create: if isVerifiedUser() && isValidId(bookingId) && isValidBooking(incoming()) && incoming().status == 'pending';
+
+      // Update: Users can cancel their booking. (For other statuses, would need partner/admin checks)
+      allow update: if (isSignedIn() && isValidId(bookingId) && existing().userId == request.auth.uid && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'cancelled')
+      )) || isAdmin();
+
+      allow delete: if isAdmin();
+    }
+  }
+}

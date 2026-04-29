@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A registered user of the platform",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "role": { "type": "string", "enum": ["user", "partner", "admin"] }
+      },
+      "required": ["email", "createdAt", "role"]
+    },
+    "Workshop": {
+      "title": "Workshop",
+      "description": "A car workshop registered by a partner",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "address", "createdAt"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "A service booking by a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "serviceType": { "type": "string", "enum": ["workshop", "carwash", "rental", "import"] },
+        "serviceId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "completed", "cancelled"] },
+        "date": { "type": "string", "format": "date-time" },
+        "costEstimate": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "serviceType", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Stores user profiles"
+    },
+    "workshops/{workshopId}": {
+      "schema": "Workshop",
+      "description": "Stores partner workshops"
+    },
+    "bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Stores user bookings"
+    }
+  }
+}
